@@ -1,0 +1,229 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-2022
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v7
+
+      - name: Setup MSBuild
+        uses: microsoft/setup-msbuild@v3
+
+      - name: Parse version from tag
+        id: version
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+        run: |
+          $tag = $env:TAG_NAME
+
+          if ($tag -notmatch '^v(?<major>0|[1-9]\d*)\.(?<minor>0|[1-9]\d*)\.(?<patch>0|[1-9]\d*)$') {
+            throw "Invalid tag. Use a version such as v1.2.3."
+          }
+
+          $version = '{0}.{1}.{2}.0' -f `
+            $Matches['major'], $Matches['minor'], $Matches['patch']
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+
+      - name: Import signing certificate
+        id: signing
+        shell: pwsh
+        env:
+          SIGNING_CERT_BASE64: ${{ secrets.SIGNING_CERT_BASE64 }}
+          SIGNING_CERT_PASSWORD: ${{ secrets.SIGNING_CERT_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:SIGNING_CERT_BASE64)) {
+            throw "Missing SIGNING_CERT_BASE64 secret."
+          }
+
+          if ([string]::IsNullOrEmpty($env:SIGNING_CERT_PASSWORD)) {
+            throw "Missing SIGNING_CERT_PASSWORD secret."
+          }
+
+          $projectDir = Join-Path $env:GITHUB_WORKSPACE 'BackToA1'
+          $pfxPath = Join-Path $projectDir 'BackToA1_Signing.pfx'
+
+          [IO.File]::WriteAllBytes(
+            $pfxPath,
+            [Convert]::FromBase64String($env:SIGNING_CERT_BASE64.Trim())
+          )
+
+          $password = ConvertTo-SecureString `
+            -String $env:SIGNING_CERT_PASSWORD `
+            -AsPlainText -Force
+
+          $imported = Import-PfxCertificate `
+            -FilePath $pfxPath `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password $password
+
+          $cert = $imported |
+            Where-Object { $_.HasPrivateKey } |
+            Select-Object -First 1
+
+          if ($null -eq $cert) {
+            throw "Could not import a certificate with a private key."
+          }
+
+          $thumbprint = $cert.Thumbprint -replace '\s', ''
+          "thumbprint=$thumbprint" >> $env:GITHUB_OUTPUT
+
+          Write-Host "Signing certificate imported successfully."
+
+      - name: Set assembly version
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $path = Join-Path $env:GITHUB_WORKSPACE `
+            'BackToA1\Properties\AssemblyInfo.cs'
+
+          $content = [IO.File]::ReadAllText($path)
+
+          $content = [regex]::Replace(
+            $content,
+            '(?m)^\[assembly: AssemblyVersion\(".*?"\)\]',
+            ('[assembly: AssemblyVersion("' + $env:APP_VERSION + '")]')
+          )
+
+          $content = [regex]::Replace(
+            $content,
+            '(?m)^\[assembly: AssemblyFileVersion\(".*?"\)\]',
+            ('[assembly: AssemblyFileVersion("' + $env:APP_VERSION + '")]')
+          )
+
+          [IO.File]::WriteAllText(
+            $path,
+            $content,
+            [Text.UTF8Encoding]::new($false)
+          )
+
+      - name: Publish VSTO add-in
+        shell: pwsh
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+          CERT_THUMBPRINT: ${{ steps.signing.outputs.thumbprint }}
+        run: |
+          $projectDir = Join-Path $env:GITHUB_WORKSPACE 'BackToA1'
+          $projectFile = Join-Path $projectDir 'BackToA1.csproj'
+          $pfxPath = Join-Path $projectDir 'BackToA1_Signing.pfx'
+
+          $artifactDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts'
+          $publishDir = Join-Path $artifactDir 'publish'
+
+          New-Item -ItemType Directory -Force -Path $artifactDir |
+            Out-Null
+
+          if (Test-Path $publishDir) {
+            Remove-Item $publishDir -Recurse -Force
+          }
+
+          New-Item -ItemType Directory -Force -Path $publishDir |
+            Out-Null
+
+          $publishUrl = $publishDir.TrimEnd('\') + '\'
+
+          & msbuild $projectFile `
+            /t:Publish `
+            /p:Configuration=Release `
+            /p:Platform=AnyCPU `
+            /p:SignManifests=true `
+            "/p:ManifestKeyFile=$pfxPath" `
+            "/p:ManifestCertificateThumbprint=$env:CERT_THUMBPRINT" `
+            "/p:ApplicationVersion=$env:APP_VERSION" `
+            "/p:DefineConstants=VSTO40%3BTRACE%3BUSEOFFICEINTEROP" `
+            /p:ApplicationRevision=0 `
+            /p:AutoIncrementApplicationRevision=false `
+            "/p:PublishUrl=$publishUrl" `
+            "/p:PublishDir=$publishUrl"
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "MSBuild publish failed with exit code $LASTEXITCODE."
+          }
+
+          if (-not (Test-Path (Join-Path $publishDir 'setup.exe'))) {
+            Get-ChildItem $publishDir -Recurse |
+              Select-Object FullName
+
+            throw "setup.exe was not generated."
+          }
+
+      - name: Package installation files
+        shell: pwsh
+        env:
+          TAG_NAME: ${{ github.ref_name }}
+          CERT_THUMBPRINT: ${{ steps.signing.outputs.thumbprint }}
+        run: |
+          $publishDir = Join-Path $env:GITHUB_WORKSPACE 'artifacts\publish'
+          $zipPath = Join-Path $env:GITHUB_WORKSPACE `
+            "artifacts\BackToA1-$env:TAG_NAME-windows.zip"
+
+          # Locate the public certificate and installation script.
+          $certificatePath = Join-Path $env:GITHUB_WORKSPACE `
+            'cert\BackToA1_Signing.cer'
+
+          $scriptPath = Join-Path $env:GITHUB_WORKSPACE `
+            'cert\install-and-trust-code-signing-cert.ps1'
+
+          if (-not (Test-Path -LiteralPath $certificatePath)) {
+            throw "Public signing certificate not found: $certificatePath"
+          }
+
+          if (-not (Test-Path -LiteralPath $scriptPath)) {
+            throw "Certificate installation script not found: $scriptPath"
+          }
+
+          # Verify the public certificate matches the certificate
+          # used to sign the ClickOnce deployment.
+          $publicCert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
+            $certificatePath
+          )
+
+          $expectedThumbprint = $env:CERT_THUMBPRINT.Replace(' ', '').ToUpperInvariant()
+          $actualThumbprint = $publicCert.Thumbprint.ToUpperInvariant()
+
+          if ($actualThumbprint -ne $expectedThumbprint) {
+            throw "Public certificate thumbprint does not match the signing certificate."
+          }
+
+          if ($publicCert.NotAfter -le (Get-Date)) {
+            throw "The public signing certificate has expired."
+          }
+
+          # Copy both files to the ZIP root. The script expects
+          # BackToA1_Signing.cer to be in the same directory.
+          Copy-Item -LiteralPath $certificatePath `
+            -Destination (Join-Path $publishDir 'BackToA1_Signing.cer') `
+            -Force
+
+          Copy-Item -LiteralPath $scriptPath `
+            -Destination (Join-Path $publishDir 'install-and-trust-code-signing-cert.ps1') `
+            -Force
+
+          # Create the ZIP only after all files have been added.
+          Compress-Archive `
+            -Path (Join-Path $publishDir '*') `
+            -DestinationPath $zipPath `
+            -CompressionLevel Optimal `
+            -Force
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: BackToA1 ${{ github.ref_name }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: artifacts/BackToA1-${{ github.ref_name }}-windows.zip
