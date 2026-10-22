@@ -53,6 +53,10 @@ namespace BackToA1
                     stage = $"Moving focus to A1 on sheet {currentProcessingSheet} of {Wb.Worksheets.Count}";
                     worksheet.Activate();
                     worksheet.Range["A1"].Select();
+
+                    stage = $"Resetting zoom on sheet {currentProcessingSheet} of {Wb.Worksheets.Count}";
+                    Wb.Application.ActiveWindow.Zoom = 100;
+
                     currentProcessingSheet++;
                 }
 

@@ -1,6 +1,6 @@
 # BackToA1
 
-<div align="center">
+<div align="center" markdown="1">
 
 日本語 | [简体中文](README_zh_cn.md)
 
@@ -22,7 +22,7 @@ Excelファイルを共有するときも、見やすい状態に。
 
 ## 動作デモ
 
-![](./doc/BackToA1Demo.gif)
+![](./docs/BackToA1Demo.gif)
 
 ## システム要件
 
@@ -36,6 +36,7 @@ Excelファイルを共有するときも、見やすい状態に。
 - ZIP ファイルの内容を任意のフォルダーに展開します。
 - コード署名証明書は自分で作成した自己署名証明書のため、以下の手順でインストールし、信頼する必要があります。
     - 展開したフォルダーで PowerShell を起動し、以下のコマンドを実行して、`BackToA1_Signing.cer` の拇印が `B68CBB359417EAB50C2133E9D6AB51277267D7A5` と一致することを確認します。
+    
     ```powershell
     $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
         (Resolve-Path ".\BackToA1_Signing.cer")
@@ -43,11 +44,14 @@ Excelファイルを共有するときも、見やすい状態に。
 
     $cert.Thumbprint
     ```
+
     - 出力された拇印を上記の値と比較してください（大文字・小文字と空白の違いは無視できます）。拇印が一致しない場合は、インストールしないでください。
     - スクリプトが Windows によってブロックされている場合は、以下のコマンドを実行してブロックを解除します。
+    
     ```powershell
     Unblock-File -LiteralPath .\install-and-trust-code-signing-cert.ps1
     ```
+
     - 同じ PowerShell ウィンドウで `.\install-and-trust-code-signing-cert.ps1` を実行し、表示される指示に従って証明書をインストールします。
 - `setup.exe` を実行してアドインをインストールします。
 

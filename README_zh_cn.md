@@ -1,6 +1,6 @@
 # BackToA1
 
-<div align="center">
+<div align="center" markdown="1">
 
 [日本語](README.md) | 简体中文
 
@@ -22,7 +22,7 @@
 
 ## 功能演示
 
-![](./doc/BackToA1Demo.gif)
+![](./docs/BackToA1Demo.gif)
 
 ## 系统要求
 
@@ -36,6 +36,7 @@
 - 将ZIP的内容解压缩到合适的地方
 - 因为代码签名证书是我自己生成的自签名证书，所以需要通过如下步骤安装并信任
     - 打开解压得到的目录并在其中启动PowerShell，执行如下命令以校验`BackToA1_Signing.cer`证书的指纹是否为`B68CBB359417EAB50C2133E9D6AB51277267D7A5`
+    
     ```powershell
     $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new(
         (Resolve-Path ".\BackToA1_Signing.cer")
@@ -43,11 +44,14 @@
 
     $cert.Thumbprint
     ```
+    
     - 将输出与上面的指纹比对（大小写和空格可以忽略），如果指纹不一致请勿安装
     - 如果`install-and-trust-code-signing-cert.ps1`被阻止运行，那么执行以下命令解除文件阻止状态
+    
     ```powershell
     Unblock-File -LiteralPath .\install-and-trust-code-signing-cert.ps1
     ```
+    
     - 在相同PowerShell窗口中运行`.\install-and-trust-code-signing-cert.ps1`脚本，根据提示完成证书的安装
 - 运行`setup.exe`安装插件
 
