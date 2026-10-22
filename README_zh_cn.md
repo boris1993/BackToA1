@@ -1,6 +1,6 @@
 # BackToA1
 
-<div align="center">
+<div align="center" markdown="1">
 
 [日本語](README.md) | 简体中文
 
@@ -22,7 +22,7 @@
 
 ## 功能演示
 
-![](./doc/BackToA1Demo.gif)
+![](./docs/BackToA1Demo.gif)
 
 ## 系统要求
 

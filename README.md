@@ -1,6 +1,6 @@
 # BackToA1
 
-<div align="center">
+<div align="center" markdown="1">
 
 日本語 | [简体中文](README_zh_cn.md)
 
@@ -22,7 +22,7 @@ Excelファイルを共有するときも、見やすい状態に。
 
 ## 動作デモ
 
-![](./doc/BackToA1Demo.gif)
+![](./docs/BackToA1Demo.gif)
 
 ## システム要件
 
